@@ -338,14 +338,18 @@
                 },
                 "network": {
                     "$ref": "#/$defs/org.icpclive.cds.ktor.NetworkSettings"
+                },
+                "baseUrl": {
+                    "type": "string"
+                },
+                "includeUnofficial": {
+                    "type": "boolean"
                 }
             },
             "additionalProperties": false,
             "required": [
                 "type",
-                "contestId",
-                "apiKey",
-                "apiSecret"
+                "contestId"
             ]
         },
         "UrlOrLocalPath(UrlOrLocalPathRaw,UrlOrLocalPathLoginPassword,UrlOrLocalPathFull)": {

@@ -18,9 +18,11 @@ import kotlin.time.Duration.Companion.seconds
 
 @Builder("cf")
 public sealed interface CFSettings : CDSSettings, KtorNetworkSettingsProvider {
+    public val baseUrl: String get() = "https://codeforces.com/api/"
+    public val includeUnofficial: Boolean get() = false
     public val contestId: Int
-    public val apiKey: Credential
-    public val apiSecret: Credential
+    public val apiKey: Credential get() = Credential("", "")
+    public val apiSecret: Credential get() = Credential("", "")
     public val asManager: Boolean
         get() = true
 
@@ -28,7 +30,12 @@ public sealed interface CFSettings : CDSSettings, KtorNetworkSettingsProvider {
 }
 
 internal class CFDataSource(val settings: CFSettings) : FullReloadContestDataSource(5.seconds) {
-    private val contestInfo = CFContestInfo()
+    init {
+        require(!settings.asManager || (settings.apiKey.value.isNotBlank() && settings.apiSecret.value.isNotBlank())) {
+            "Manager mode requires Codeforces credentials"
+        }
+    }
+    private val contestInfo = CFContestInfo(includeUnofficial = settings.includeUnofficial)
     private val apiKey = settings.apiKey.value
     private val apiSecret = settings.apiSecret.value
 
@@ -36,12 +43,14 @@ internal class CFDataSource(val settings: CFSettings) : FullReloadContestDataSou
         method: String,
         params: Map<String, String>,
     ): UrlOrLocalPath {
-        val sortedParams = params.toSortedMap()
-        sortedParams["time"] = Clock.System.now().epochSeconds.toString()
-        sortedParams["apiKey"] = apiKey
-        val rand = (Random.nextInt(900000) + 100000).toString()
-        sortedParams["apiSig"] = rand + hash(sortedParams.toQuery("$rand/$method?", "#$apiSecret"))
-        return UrlOrLocalPath.Url(sortedParams.toQuery("https://codeforces.com/api/$method?"))
+        val sortedParams = params.filterKeys { settings.asManager || it != "asManager" }.toSortedMap()
+        if (settings.asManager) {
+            sortedParams["time"] = Clock.System.now().epochSeconds.toString()
+            sortedParams["apiKey"] = apiKey
+            val rand = (Random.nextInt(900000) + 100000).toString()
+            sortedParams["apiSig"] = rand + hash(sortedParams.toQuery("$rand/$method?", "#$apiSecret"))
+        }
+        return UrlOrLocalPath.Url(sortedParams.toQuery(settings.baseUrl.trimEnd('/') + "/$method?"))
     }
 
     private val standingsLoader = DataLoader.json<CFStatusWrapper<CFStandings>>(networkSettings = settings.network) {
@@ -83,15 +92,13 @@ internal class CFDataSource(val settings: CFSettings) : FullReloadContestDataSou
 
     override suspend fun loadOnce(): ContestParseResult {
         // can change inside previous if, so we do recheck, not else.
-        contestInfo.updateStandings(standingsLoader.load())
+        val standings = standingsLoader.load()
+        contestInfo.updateStandings(standings)
         val runs = when (contestInfo.status) {
             is ContestStatus.BEFORE -> emptyList()
             else -> contestInfo.parseSubmissions(statusLoader.load())
         }
-        val hacks = when (contestInfo.status) {
-            is ContestStatus.BEFORE -> emptyList()
-            else -> contestInfo.parseHacks(hacksLoader.load())
-        }
+        val hacks = if (contestInfo.status !is ContestStatus.BEFORE && standings.contest.type == org.icpclive.cds.plugins.codeforces.api.data.CFContestType.CF) contestInfo.parseHacks(hacksLoader.load()) else emptyList()
         return ContestParseResult(contestInfo.toApi().copy(languagesList = runs.languages()), runs + hacks, emptyList())
     }
 
