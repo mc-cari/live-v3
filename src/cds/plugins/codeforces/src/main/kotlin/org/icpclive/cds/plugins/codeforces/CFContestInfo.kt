@@ -11,6 +11,7 @@ import kotlin.time.Duration.Companion.hours
 private val HACKS_PROBLEM_ID = "hacks".toProblemId()
 
 internal class CFContestInfo {
+    private val submissionHistory = mutableMapOf<Long, CFSubmission>()
     private var contestLength: Duration = 5.hours
     private var freezeDuration: Duration? = null
     private var startTime: Instant = Instant.fromEpochMilliseconds(0)
@@ -182,7 +183,9 @@ internal class CFContestInfo {
         return (initialScore - finalScore) / roundedContestDuration
     }
 
-    fun parseSubmissions(submissions: List<CFSubmission>): List<RunInfo> {
+    fun parseSubmissions(latestSubmissions: List<CFSubmission>): List<RunInfo> {
+        latestSubmissions.forEach { submissionHistory[it.id] = it }
+        val submissions = submissionHistory.values.toList()
         val problemTestsCount = submissions.groupBy { it.problem.index }.mapValues { (_, v) ->
             v.maxOf { submit -> submit.passedTestCount + if (submit.verdict == CFSubmissionVerdict.OK) 0 else 1 }
         }
