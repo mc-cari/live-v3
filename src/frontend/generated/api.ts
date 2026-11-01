@@ -424,6 +424,7 @@ export interface RunInfo {
   isHidden: boolean;
   sourceFiles?: MediaType[];
   accountId?: AccountId | null;
+  customFields?: { [key: string]: string };
 }
 
 export type RunResult =

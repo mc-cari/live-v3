@@ -33,6 +33,7 @@ public data class RunInfo(
     @Required val isHidden: Boolean = false,
     val sourceFiles: List<MediaType> = emptyList(),
     val accountId: AccountId? = null,
+    val customFields: Map<String, String> = emptyMap(),
 )
 
 @Serializable(with = VerdictSerializer::class)
