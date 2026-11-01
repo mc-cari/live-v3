@@ -6,6 +6,7 @@ import org.icpclive.cds.plugins.codeforces.api.results.CFStandings
 import kotlin.math.ceil
 import kotlin.time.*
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 
 
 private val HACKS_PROBLEM_ID = "hacks".toProblemId()
@@ -21,6 +22,9 @@ internal class CFContestInfo {
     private var cfStandings: CFStandings? = null
     private val participants = mutableListOf<TeamInfo>()
     private var contestType: CFContestType = CFContestType.ICPC
+    private var penaltyPerWrongAttempt: Duration = 20.minutes
+    private var penaltyContestId: Int? = null
+    private var learnedPenaltyMinutes: Int? = null
     private var name: String = ""
 
     private fun updateContestInfo(contest: CFContest) {
@@ -40,6 +44,26 @@ internal class CFContestInfo {
     fun updateStandings(standings: CFStandings) {
         this.cfStandings = standings
         updateContestInfo(standings.contest)
+        if (contestType == CFContestType.ICPC) {
+            if (penaltyContestId != standings.contest.id) {
+                penaltyContestId = standings.contest.id
+                learnedPenaltyMinutes = null
+            }
+            // Row totals are present in the public API, unlike per-problem penalties.
+            val candidates = standings.rows.asSequence()
+                .filter { it.party.participantType == CFPartyParticipantType.CONTESTANT }
+                .mapNotNull { row ->
+                    val solved = row.problemResults.filter { it.points > 0 }
+                    if (row.points != solved.size.toDouble() || solved.any { it.bestSubmissionTimeSeconds == null || it.bestSubmissionTimeSeconds <= 0 || it.rejectedAttemptCount < 0 }) return@mapNotNull null
+                    val wrong = solved.sumOf { it.rejectedAttemptCount }
+                    val extra = row.penalty.toLong() - solved.sumOf { it.bestSubmissionTimeSeconds!! / 60 }
+                    if (wrong > 0 && extra >= 0 && extra % wrong == 0L) (extra / wrong).toInt() else null
+                }.toSet()
+            if (learnedPenaltyMinutes == null && candidates.size == 1) learnedPenaltyMinutes = candidates.single()
+            // Missing/conflicting evidence never discards a reliable learned rule.
+            penaltyPerWrongAttempt = (learnedPenaltyMinutes
+                ?: if (standings.contest.id < 100000) 10 else 20).minutes
+        }
         problems.clear()
         for ((id, problem) in standings.problems.withIndex()) {
             val problemInfo = ProblemInfo(
@@ -274,6 +298,7 @@ internal class CFContestInfo {
             CFContestType.BLITZ -> PenaltyRoundingMode.ZERO
             CFContestType.ICPC -> PenaltyRoundingMode.EACH_SUBMISSION_DOWN_TO_MINUTE
         },
+        penaltyPerWrongAttempt = penaltyPerWrongAttempt,
         organizationList = emptyList(),
         languagesList = emptyList(),
     )
