@@ -123,7 +123,7 @@ internal class CFContestInfo {
             CFSubmissionVerdict.INPUT_PREPARATION_CRASHED -> Verdict.Fail
             CFSubmissionVerdict.CHALLENGED -> Verdict.Challenged
             CFSubmissionVerdict.SKIPPED -> Verdict.Ignored
-            CFSubmissionVerdict.TESTING -> null
+            CFSubmissionVerdict.TESTING, CFSubmissionVerdict.SUBMITTED -> null
             CFSubmissionVerdict.REJECTED -> Verdict.Rejected
             null -> null
         }?.let {
@@ -135,7 +135,7 @@ internal class CFContestInfo {
         }
 
     private fun submissionToResult(submission: CFSubmission, wrongAttempts: Int): RunResult? {
-        if (submission.verdict == null || submission.verdict == CFSubmissionVerdict.TESTING) return null
+        if (submission.verdict == null || submission.verdict == CFSubmissionVerdict.TESTING || submission.verdict == CFSubmissionVerdict.SUBMITTED) return null
         return when (contestType) {
             CFContestType.ICPC -> {
                 submission.processedVerdict?.toICPCRunResult()
