@@ -4,6 +4,10 @@ import org.icpclive.cds.api.*
 import org.icpclive.cds.plugins.codeforces.api.data.*
 import org.icpclive.cds.plugins.codeforces.api.results.CFStandings
 import kotlin.math.ceil
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.encodeToString
 import kotlin.time.*
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
@@ -11,7 +15,7 @@ import kotlin.time.Duration.Companion.minutes
 
 private val HACKS_PROBLEM_ID = "hacks".toProblemId()
 
-internal class CFContestInfo {
+internal class CFContestInfo(private val includeUnofficial: Boolean = false, private val individualsOnly: Boolean = false) {
     private val submissionHistory = mutableMapOf<Long, CFSubmission>()
     private var contestLength: Duration = 5.hours
     private var freezeDuration: Duration? = null
@@ -19,8 +23,8 @@ internal class CFContestInfo {
     var status: ContestStatus = ContestStatus.BEFORE()
         private set
     private val problems = mutableListOf<ProblemInfo>()
-    private var cfStandings: CFStandings? = null
-    private val participants = mutableListOf<TeamInfo>()
+    private var standingsMetadata: String = "{}"
+    private val participants = linkedMapOf<TeamId, TeamInfo>()
     private var contestType: CFContestType = CFContestType.ICPC
     private var penaltyPerWrongAttempt: Duration = 20.minutes
     private var name: String = ""
@@ -40,7 +44,10 @@ internal class CFContestInfo {
     }
 
     fun updateStandings(standings: CFStandings) {
-        this.cfStandings = standings
+        standingsMetadata = buildJsonObject {
+            put("contest", Json.encodeToJsonElement(standings.contest))
+            put("problems", Json.encodeToJsonElement(standings.problems))
+        }.toString()
         updateContestInfo(standings.contest)
         if (contestType == CFContestType.ICPC) {
             // The API exposes penalties on results, but not the contest's penalty setting.
@@ -88,22 +95,27 @@ internal class CFContestInfo {
             )
             problems.add(hacksInfo)
         }
-        participants.clear()
-        for (row in standings.rows) {
-            val cdsId = getTeamCdsId(row.party)
-            val party = row.party
-            participants.add(TeamInfo(
-                id = cdsId.toTeamId(),
-                fullName = party.teamName ?: party.members[0].let { it.name ?: it.handle },
-                displayName = party.teamName ?: party.members[0].let { it.name ?: it.handle },
-                groups = emptyList(),
-                hashTag = null,
-                medias = emptyMap(),
-                organizationId = null,
-                isHidden = false,
-                isOutOfContest = false
-            ))
-        }
+        standings.rows.forEach { addParticipant(it.party, fromStandings = true) }
+    }
+
+    private fun included(party: CFParty): Boolean =
+        (!individualsOnly || (party.teamId == null && party.members.size == 1)) &&
+        (party.participantType == CFPartyParticipantType.CONTESTANT ||
+            (includeUnofficial && party.participantType == CFPartyParticipantType.OUT_OF_COMPETITION))
+
+    private fun addParticipant(party: CFParty, fromStandings: Boolean = false) {
+        if (!included(party)) return
+        val id = getTeamCdsId(party).toTeamId()
+        val original = participants[id]
+        if (original?.customFields?.get("codeforces.participantType") == "CONTESTANT" && (!fromStandings || party.participantType != CFPartyParticipantType.CONTESTANT)) return
+        val displayName = party.teamName ?: party.members.first().let { it.name ?: it.handle }
+        val team = TeamInfo(
+            id = id, fullName = displayName, displayName = displayName,
+            groups = emptyList(), hashTag = null, medias = emptyMap(), organizationId = null,
+            isHidden = false, isOutOfContest = party.participantType != CFPartyParticipantType.CONTESTANT,
+            customFields = mapOf("codeforces.party" to Json.encodeToString(party), "codeforces.participantType" to party.participantType.name)
+        )
+        participants[id] = team
     }
 
     private val CFSubmission.processedVerdict
@@ -192,13 +204,16 @@ internal class CFContestInfo {
 
     fun parseSubmissions(latestSubmissions: List<CFSubmission>): List<RunInfo> {
         latestSubmissions.forEach { submissionHistory[it.id] = it }
-        val submissions = submissionHistory.values.toList()
+        val submissions = submissionHistory.values.filter {
+            included(it.author) && it.relativeTimeSeconds >= Duration.ZERO && it.relativeTimeSeconds <= contestLength
+        }
+        submissions.forEach { addParticipant(it.author) }
         val problemTestsCount = submissions.groupBy { it.problem.index }.mapValues { (_, v) ->
             v.maxOf { submit -> submit.passedTestCount + if (submit.verdict == CFSubmissionVerdict.OK) 0 else 1 }
         }
         return submissions.reversed().asSequence()
-            .filter { it.author.participantType == CFPartyParticipantType.CONTESTANT }
-            .groupBy { it.author to it.problem }
+            .filter { included(it.author) }
+            .groupBy { getTeamCdsId(it.author) to it.problem.index }
             .mapValues { (_, submissions) ->
                 var wrongs = 0
                 submissions.sortedBy { it.id }.map {
@@ -211,7 +226,8 @@ internal class CFContestInfo {
                         problemId = problemId,
                         teamId = getTeamCdsId(it.author).toTeamId(),
                         time = it.relativeTimeSeconds,
-                        languageId = it.programmingLanguage.toLanguageId()
+                        languageId = it.programmingLanguage.toLanguageId(),
+                        customFields = mapOf("codeforces.submission" to Json.encodeToString(it))
                     )
                     wrongs += if (it.processedVerdict?.isAddingPenalty == true) 1 else 0
                     run
@@ -222,8 +238,10 @@ internal class CFContestInfo {
     fun parseHacks(hacks: List<CFHack>): List<RunInfo> {
         return buildList {
             for (hack in hacks) {
-                if (hack.creationTimeSeconds - startTime > contestLength) continue
-                if (hack.hacker.participantType == CFPartyParticipantType.CONTESTANT) {
+                if (contestType != CFContestType.CF || hack.creationTimeSeconds < startTime || hack.creationTimeSeconds - startTime > contestLength) continue
+                addParticipant(hack.hacker)
+                addParticipant(hack.defender)
+                if (included(hack.hacker)) {
                     add(
                         RunInfo(
                             id = "hack-attack-${hack.id}".toRunId(),
@@ -245,11 +263,12 @@ internal class CFContestInfo {
                             problemId = HACKS_PROBLEM_ID,
                             teamId = getTeamCdsId(hack.hacker).toTeamId(),
                             time = hack.creationTimeSeconds - startTime,
-                            languageId = null
+                            languageId = null,
+                            customFields = mapOf("codeforces.hack" to Json.encodeToString(hack))
                         )
                     )
                 }
-                if (hack.defender.participantType == CFPartyParticipantType.CONTESTANT) {
+                if (included(hack.defender)) {
                     add(
                         RunInfo(
                             id = "hack-defend-${hack.id}".toRunId(),
@@ -261,7 +280,8 @@ internal class CFContestInfo {
                             problemId = hack.problem.index.toProblemId(),
                             teamId = getTeamCdsId(hack.defender).toTeamId(),
                             time = hack.creationTimeSeconds - startTime,
-                            languageId = null
+                            languageId = null,
+                            customFields = mapOf("codeforces.hack" to Json.encodeToString(hack))
                         )
                     )
                 }
@@ -279,7 +299,7 @@ internal class CFContestInfo {
         contestLength = contestLength,
         freezeTime = freezeDuration?.let { contestLength - it },
         problemList = problems.sortedBy { it.ordinal },
-        teamList = participants.sortedBy { it.id.value },
+        teamList = participants.values.sortedBy { it.id.value },
         groupList = emptyList(),
         penaltyRoundingMode = when (contestType) {
             CFContestType.CF -> PenaltyRoundingMode.ZERO
@@ -290,11 +310,12 @@ internal class CFContestInfo {
         penaltyPerWrongAttempt = penaltyPerWrongAttempt,
         organizationList = emptyList(),
         languagesList = emptyList(),
+        customFields = mapOf("codeforces.standings" to standingsMetadata),
     )
 
     companion object {
         fun getTeamCdsId(party: CFParty): String {
-            return party.teamId?.let { "team:${it}" } ?: party.members[0].handle
+            return party.teamId?.let { "team:${it}" } ?: party.members[0].handle.lowercase()
         }
     }
 }
