@@ -3,9 +3,12 @@ package org.icpclive.converter.export.clics
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.*
+import kotlinx.serialization.json.*
+import java.util.UUID
 import org.icpclive.cds.*
 import org.icpclive.cds.api.*
 import org.icpclive.cds.scoreboard.ContestStateWithScoreboard
+import org.icpclive.cds.scoreboard.getScoreboardCalculator
 import org.icpclive.cds.util.stateInCompletable
 import org.icpclive.clics.Url
 import org.icpclive.clics.events.*
@@ -15,35 +18,23 @@ import org.icpclive.clics.objects.ScoreboardRow
 import org.icpclive.clics.withQueryParams
 import kotlin.collections.map
 
-data class EventWithOldValue(val event: Event, val oldValue: Any?)
+data class EventWithOldValue(val event: Event, val oldValue: Any?, val metadata: JsonObject = JsonObject(emptyMap()))
 
 typealias EventProducer = (EventToken) -> EventWithOldValue
 
 internal class ClicsFeedGenerator(scope: CoroutineScope, updates: Flow<ContestStateWithScoreboard>, private val isAdmin: Boolean) {
-    val eventFeed = generateEventFeed(updates)
-        .shareIn(scope, SharingStarted.Eagerly, replay = Int.MAX_VALUE)
-        .transformWhile {
-            emit(it)
-            it.event !is StateEvent || it.event.data.endOfUpdates == null
-        }
-    val contestFlow = eventFeed.filterGlobalEvent<_, ContestEvent>(scope)
-    val stateFlow = eventFeed.filterGlobalEvent<_, StateEvent>(scope)
-
-    val judgementTypesFlow = eventFeed.filterIdEvent<_, JudgementTypeEvent>(scope)
-    val languagesFlow = eventFeed.filterIdEvent<_, LanguageEvent>(scope)
-    val problemsFlow = eventFeed.filterIdEvent<_, ProblemEvent>(scope)
-    val groupsFlow = eventFeed.filterIdEvent<_, GroupEvent>(scope)
-    val organizationsFlow = eventFeed.filterIdEvent<_, OrganizationEvent>(scope)
-    val teamsFlow = eventFeed.filterIdEvent<_, TeamEvent>(scope)
-    val submissionsFlow = eventFeed.filterIdEvent<_, SubmissionEvent>(scope)
-    val judgementsFlow = eventFeed.filterIdEvent<_, JudgementEvent>(scope)
-    //val runsFlow = eventFeed.filterIdEvent<_, RunsEvent>(scope)
-    val commentaryFlow = eventFeed.filterIdEvent<_, CommentaryEvent>(scope)
-    val personsFlow = eventFeed.filterIdEvent<_, PersonEvent>(scope)
-    val accountsFlow = eventFeed.filterIdEvent<_, AccountEvent>(scope)
-    //val clarificationsFlow = eventFeed.filterIdEvent<_, ClarificationEvent>(scope)
-    val awardsFlow = eventFeed.filterIdEvent<_, AwardEvent>(scope)
-    suspend fun getScoreboard(groupId: String?) = currentState.filterNotNull().first().toClicsScoreboard(groupId)
+    val feedInstance: String = UUID.randomUUID().toString()
+    private var eventCounter = 1
+    suspend fun getScoreboard(groupId: String?, includeUnofficial: Boolean = false) = currentState.filterNotNull().first().first.toClicsScoreboard(groupId, includeUnofficial)
+    suspend fun getExtendedScoreboard(groupId: String?, includeUnofficial: Boolean, json: Json): JsonObject {
+        val (state, watermark) = currentState.filterNotNull().first()
+        val board = json.encodeToJsonElement(state.toClicsScoreboard(groupId, includeUnofficial)).jsonObject
+        return JsonObject(board + ("x_live" to buildJsonObject {
+            put("feed_instance", feedInstance)
+            put("watermark", watermark)
+            put("custom_fields", Json.encodeToJsonElement(state.state.infoAfterEvent!!.customFields))
+        }))
+    }
 
 
 
@@ -288,7 +279,8 @@ internal class ClicsFeedGenerator(scope: CoroutineScope, updates: Flow<ContestSt
         )
     }
 
-    private val submissions = mutableMapOf<RunId, Pair<Submission, Judgement>>()
+    private val runMetadata = mutableMapOf<RunId, JsonObject>()
+    private val submissions = mutableMapOf<RunId, Pair<Submission?, Judgement?>>()
 
     private suspend fun FlowCollector<EventProducer>.processRun(info: ContestInfo, run: RunInfo) {
         val submission = Submission(
@@ -335,15 +327,16 @@ internal class ClicsFeedGenerator(scope: CoroutineScope, updates: Flow<ContestSt
                 current = true,
             )
         }.takeUnless { run.isHidden }
-        val (oldSubmission, oldJudgment) = submissions[run.id] ?: (null to null)
-        if (submission != oldSubmission) {
-            updateEvent(
-                run.id.sanitizedValue,
-                submission,
-                oldSubmission,
-                ::SubmissionEvent
-            )
+        val metadata = buildJsonObject {
+            put("custom_fields", Json.encodeToJsonElement(run.customFields))
+            put("judging", Json.encodeToJsonElement(run.result))
         }
+        val metadataChanged = runMetadata.put(run.id, metadata) != metadata
+        val (oldSubmission, oldJudgment) = submissions[run.id] ?: (null to null)
+        if (submission != oldSubmission || metadataChanged) {
+            emit { token -> EventWithOldValue(SubmissionEvent(run.id.sanitizedValue, token, submission), oldSubmission, metadata) }
+        }
+        submissions[run.id] = submission to judgement
         if (judgement != oldJudgment) {
             updateEvent(
                 run.id.sanitizedValue,
@@ -374,7 +367,11 @@ internal class ClicsFeedGenerator(scope: CoroutineScope, updates: Flow<ContestSt
 
     @OptIn(InefficientContestInfoApi::class)
     private suspend fun FlowCollector<EventProducer>.calculateDiff(oldInfo: ContestInfo?, newInfo: ContestInfo) {
-        diff(oldInfo, newInfo, ::getContest, ::ContestEvent)
+        if (oldInfo?.customFields != newInfo.customFields || getContest(oldInfo) != getContest(newInfo)) {
+            emit { token -> EventWithOldValue(ContestEvent(token, getContest(newInfo)), oldInfo?.let { getContest(it) }, buildJsonObject {
+                put("custom_fields", Json.encodeToJsonElement(newInfo.customFields))
+            }) }
+        }
         diff(oldInfo, newInfo, ::getState, ::StateEvent)
         if (oldInfo == null) {
             for (type in judgmentTypes.values) {
@@ -385,7 +382,8 @@ internal class ClicsFeedGenerator(scope: CoroutineScope, updates: Flow<ContestSt
         val clicsGroups = newInfo.groupList.map { it.toClicsGroup() }
         val clicsOrgs = newInfo.organizationList.map { it.toClicsOrg() }
         val clicsLangs = (newInfo.languagesList + unknownLanguage).map { it.toClicsLang() }
-        val clicsTeams = newInfo.teamList.mapNotNull { it.takeUnless { it.isHidden }?.toClicsTeam() }
+        val exportedTeams = newInfo.teamList.filterNot { it.isHidden }
+        val clicsTeams = exportedTeams.map { it.toClicsTeam() }
         val clicsPersons = newInfo.personsList.map { it.toClicsPerson() }
         val clicsAccounts = newInfo.accountsList.map { it.toClicsAccount() }
 
@@ -393,7 +391,16 @@ internal class ClicsFeedGenerator(scope: CoroutineScope, updates: Flow<ContestSt
         diffChange(groupsMap, clicsGroups, ::GroupEvent)
         diffChange(orgsMap, clicsOrgs, ::OrganizationEvent)
         diffChange(languagesMap, clicsLangs, ::LanguageEvent)
-        diffChange(teamsMap, clicsTeams, ::TeamEvent)
+        for (team in exportedTeams) {
+            val value = team.toClicsTeam()
+            val oldValue = teamsMap[value.id]
+            if (oldValue != value || oldInfo?.teams?.get(team.id)?.customFields != team.customFields) {
+                emit { token -> EventWithOldValue(TeamEvent(value.id, token, value), oldValue, buildJsonObject {
+                    put("custom_fields", Json.encodeToJsonElement(team.customFields))
+                }) }
+                teamsMap[value.id] = value
+            }
+        }
         diffChange(personsMap, clicsPersons, ::PersonEvent)
         diffChange(accountsMap, clicsAccounts, ::AccountEvent)
 
@@ -414,12 +421,34 @@ internal class ClicsFeedGenerator(scope: CoroutineScope, updates: Flow<ContestSt
         )
     }
 
-    private val currentState = MutableStateFlow<ContestStateWithScoreboard?>(null)
+    private val currentState = MutableStateFlow<Pair<ContestStateWithScoreboard, String>?>(null)
+
+    val eventFeed = generateEventFeed(updates)
+        .shareIn(scope, SharingStarted.Eagerly, replay = Int.MAX_VALUE)
+        .transformWhile {
+            emit(it)
+            it.event !is StateEvent || it.event.data.endOfUpdates == null
+        }
+    val contestFlow = eventFeed.filterGlobalEvent<_, ContestEvent>(scope)
+    val stateFlow = eventFeed.filterGlobalEvent<_, StateEvent>(scope)
+
+    val judgementTypesFlow = eventFeed.filterIdEvent<_, JudgementTypeEvent>(scope)
+    val languagesFlow = eventFeed.filterIdEvent<_, LanguageEvent>(scope)
+    val problemsFlow = eventFeed.filterIdEvent<_, ProblemEvent>(scope)
+    val groupsFlow = eventFeed.filterIdEvent<_, GroupEvent>(scope)
+    val organizationsFlow = eventFeed.filterIdEvent<_, OrganizationEvent>(scope)
+    val teamsFlow = eventFeed.filterIdEvent<_, TeamEvent>(scope)
+    val submissionsFlow = eventFeed.filterIdEvent<_, SubmissionEvent>(scope)
+    val judgementsFlow = eventFeed.filterIdEvent<_, JudgementEvent>(scope)
+    //val runsFlow = eventFeed.filterIdEvent<_, RunsEvent>(scope)
+    val commentaryFlow = eventFeed.filterIdEvent<_, CommentaryEvent>(scope)
+    val personsFlow = eventFeed.filterIdEvent<_, PersonEvent>(scope)
+    val accountsFlow = eventFeed.filterIdEvent<_, AccountEvent>(scope)
+    //val clarificationsFlow = eventFeed.filterIdEvent<_, ClarificationEvent>(scope)
+    val awardsFlow = eventFeed.filterIdEvent<_, AwardEvent>(scope)
 
     private fun generateEventFeed(updates: Flow<ContestStateWithScoreboard>) : Flow<EventWithOldValue> {
-        var eventCounter = 1
         return updates.transform { state ->
-            currentState.value = state
             when (val event = state.state.lastEvent) {
                 is InfoUpdate -> calculateDiff(state.state.infoBeforeEvent, event.newInfo)
                 is RunUpdate -> processRun(state.state.infoBeforeEvent!!, event.newInfo)
@@ -428,6 +457,7 @@ internal class ClicsFeedGenerator(scope: CoroutineScope, updates: Flow<ContestSt
             val newAwards = state.toClicsAwards()
             diffChange(awardsMap, newAwards, ::AwardEvent)
             diffRemove(awardsMap, newAwards, ::AwardEvent)
+            currentState.value = state to "live-cds-${eventCounter - 1}"
         }.map { it(EventToken("live-cds-${eventCounter++}")) }
     }
 
@@ -449,14 +479,22 @@ internal class ClicsFeedGenerator(scope: CoroutineScope, updates: Flow<ContestSt
         }
     }
 
-    private fun ContestStateWithScoreboard.toClicsScoreboard(groupId: String?): Scoreboard {
+    @OptIn(InefficientContestInfoApi::class)
+    private fun ContestStateWithScoreboard.toClicsScoreboard(groupId: String?, includeUnofficial: Boolean = false): Scoreboard {
         val info = state.infoAfterEvent!!
+        // Reuse calculated rows and the engine comparator to expose tie ranks
+        // for unofficial entries, without changing eligibility or scoring.
+        val exportRanking = if (includeUnofficial) {
+            val rankedInfo = info.copy(teamList = info.teamList.map { it.copy(isOutOfContest = false) })
+            getScoreboardCalculator(rankedInfo, OptimismLevel.NORMAL).getRanking(
+                rankingAfter.order.associateWith { scoreboardRowAfter(it) }, rankingAfter.order)
+        } else rankingAfter
         return Scoreboard(
             time = info.startTimeOrZero + lastSubmissionTime,
             contestTime = lastSubmissionTime,
             state = getState(info),
-            rows = rankingAfter.order.zip(rankingAfter.ranks)
-                .filter { it.second > 0 }
+            rows = exportRanking.order.zip(exportRanking.ranks)
+                .filter { includeUnofficial || it.second > 0 }
                 .removeNotInGroup(info, groupId?.toGroupId() ?: info.mainScoreboardGroupId)
                 .map { (teamId, rank) ->
                 val row = scoreboardRowAfter(teamId)
