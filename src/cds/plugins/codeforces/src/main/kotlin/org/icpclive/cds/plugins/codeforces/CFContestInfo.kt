@@ -161,8 +161,7 @@ internal class CFContestInfo {
                         maxScore * 3 / 10,
                         ceil(
                             maxScore - submission.relativeTimeSeconds.inWholeMinutes * getProblemLooseScorePerMinute(
-                                maxScore,
-                                contestLength.inWholeMinutes
+                                maxScore
                             ) - 50 * wrongAttempts
                         )
                     )
@@ -177,11 +176,7 @@ internal class CFContestInfo {
         }
     }
 
-    private fun getProblemLooseScorePerMinute(initialScore: Double, duration: Long): Double {
-        val finalScore = initialScore * 0.52
-        val roundedContestDuration = maxOf(1, duration / 30) * 30
-        return (initialScore - finalScore) / roundedContestDuration
-    }
+    private fun getProblemLooseScorePerMinute(initialScore: Double): Double = initialScore / 250
 
     fun parseSubmissions(latestSubmissions: List<CFSubmission>): List<RunInfo> {
         latestSubmissions.forEach { submissionHistory[it.id] = it }
