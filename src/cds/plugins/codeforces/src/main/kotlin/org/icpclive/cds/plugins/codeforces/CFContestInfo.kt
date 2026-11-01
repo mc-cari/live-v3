@@ -6,6 +6,7 @@ import org.icpclive.cds.plugins.codeforces.api.results.CFStandings
 import kotlin.math.ceil
 import kotlin.time.*
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 
 
 private val HACKS_PROBLEM_ID = "hacks".toProblemId()
@@ -21,6 +22,7 @@ internal class CFContestInfo {
     private var cfStandings: CFStandings? = null
     private val participants = mutableListOf<TeamInfo>()
     private var contestType: CFContestType = CFContestType.ICPC
+    private var penaltyPerWrongAttempt: Duration = 20.minutes
     private var name: String = ""
 
     private fun updateContestInfo(contest: CFContest) {
@@ -40,6 +42,20 @@ internal class CFContestInfo {
     fun updateStandings(standings: CFStandings) {
         this.cfStandings = standings
         updateContestInfo(standings.contest)
+        if (contestType == CFContestType.ICPC) {
+            // The API exposes penalties on results, but not the contest's penalty setting.
+            // Infer it from a solved problem with wrong attempts whenever possible.
+            val observed = standings.rows.asSequence().filter { it.party.participantType == CFPartyParticipantType.CONTESTANT }
+                .flatMap { it.problemResults.asSequence() }.mapNotNull { result ->
+                    val time = result.bestSubmissionTimeSeconds ?: return@mapNotNull null
+                    val penalty = result.penalty ?: return@mapNotNull null
+                    val extra = penalty - time / 60
+                    if (result.points > 0 && result.rejectedAttemptCount > 0 && extra >= 0 && extra % result.rejectedAttemptCount == 0L)
+                        (extra / result.rejectedAttemptCount).minutes else null
+                }.firstOrNull()
+            // Public Codeforces rounds use extended ICPC rules; Gym defaults to ICPC.
+            penaltyPerWrongAttempt = observed ?: if (standings.contest.id < 100000) 10.minutes else 20.minutes
+        }
         problems.clear()
         for ((id, problem) in standings.problems.withIndex()) {
             val problemInfo = ProblemInfo(
@@ -271,6 +287,7 @@ internal class CFContestInfo {
             CFContestType.BLITZ -> PenaltyRoundingMode.ZERO
             CFContestType.ICPC -> PenaltyRoundingMode.EACH_SUBMISSION_DOWN_TO_MINUTE
         },
+        penaltyPerWrongAttempt = penaltyPerWrongAttempt,
         organizationList = emptyList(),
         languagesList = emptyList(),
     )
