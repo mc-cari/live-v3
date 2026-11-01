@@ -150,10 +150,10 @@ internal class CFContestInfo {
 
             CFContestType.CF -> {
                 // TODO: this should come from API
-                val maxScore = submission.problem.points!!
+                val maxScore = problems.firstOrNull { it.id.value == submission.problem.index }?.maxScore ?: submission.problem.points ?: error("Missing problem points")
                 val isWrong = submission.verdict != CFSubmissionVerdict.OK
                 val score = if (!isWrong) {
-                    maxOf(
+                    submission.points?.takeIf { it > 0 } ?: maxOf(
                         maxScore * 3 / 10,
                         ceil(
                             maxScore - submission.relativeTimeSeconds.inWholeMinutes * getProblemLooseScorePerMinute(
