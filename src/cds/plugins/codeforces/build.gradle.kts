@@ -3,6 +3,6 @@ plugins {
 }
 
 dependencies {
-    implementation(projects.cds.ktor)
+    api(projects.cds.ktor)
     implementation(projects.cds.utils)
 }

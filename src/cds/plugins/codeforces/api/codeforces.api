@@ -1,13 +1,18 @@
+public abstract interface class org/icpclive/cds/plugins/codeforces/CFHistoryStore {
+	public abstract fun merge (Ljava/lang/String;Lkotlinx/serialization/json/JsonElement;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun read (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
 public abstract interface class org/icpclive/cds/plugins/codeforces/CFSettings : org/icpclive/cds/ktor/KtorNetworkSettingsProvider, org/icpclive/cds/settings/CDSSettings {
-	public abstract fun getApiKey ()Lorg/icpclive/cds/settings/Credential;
-	public abstract fun getApiSecret ()Lorg/icpclive/cds/settings/Credential;
+	public fun getApiKey ()Lorg/icpclive/cds/settings/Credential;
+	public fun getApiSecret ()Lorg/icpclive/cds/settings/Credential;
 	public fun getAsManager ()Z
 	public abstract fun getContestId ()I
 	public fun toDataSource ()Lorg/icpclive/cds/ContestDataSource;
 }
 
 public final class org/icpclive/cds/plugins/codeforces/CFSettingsBuilder : org/icpclive/cds/plugins/codeforces/CFSettings {
-	public fun <init> (ILorg/icpclive/cds/settings/Credential;Lorg/icpclive/cds/settings/Credential;)V
+	public fun <init> (I)V
 	public fun <init> (Lorg/icpclive/cds/plugins/codeforces/CFSettings;)V
 	public final fun build ()Lorg/icpclive/cds/plugins/codeforces/CFSettings;
 	public fun getApiKey ()Lorg/icpclive/cds/settings/Credential;
@@ -27,9 +32,20 @@ public final class org/icpclive/cds/plugins/codeforces/CFSettingsBuilder : org/i
 }
 
 public final class org/icpclive/cds/plugins/codeforces/CFSettingsImplKt {
-	public static final fun CFSettings (ILorg/icpclive/cds/settings/Credential;Lorg/icpclive/cds/settings/Credential;Lkotlin/jvm/functions/Function1;)Lorg/icpclive/cds/plugins/codeforces/CFSettings;
-	public static synthetic fun CFSettings$default (ILorg/icpclive/cds/settings/Credential;Lorg/icpclive/cds/settings/Credential;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lorg/icpclive/cds/plugins/codeforces/CFSettings;
+	public static final fun CFSettings (ILkotlin/jvm/functions/Function1;)Lorg/icpclive/cds/plugins/codeforces/CFSettings;
+	public static synthetic fun CFSettings$default (ILkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lorg/icpclive/cds/plugins/codeforces/CFSettings;
 	public static final fun copy (Lorg/icpclive/cds/plugins/codeforces/CFSettings;Lkotlin/jvm/functions/Function1;)Lorg/icpclive/cds/plugins/codeforces/CFSettings;
 	public static synthetic fun copy$default (Lorg/icpclive/cds/plugins/codeforces/CFSettings;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lorg/icpclive/cds/plugins/codeforces/CFSettings;
+}
+
+public final class org/icpclive/cds/plugins/codeforces/CFSourceKt {
+	public static final fun createSource-J1moZ4E (Lorg/icpclive/cds/plugins/codeforces/CFSettings;Lorg/icpclive/cds/plugins/codeforces/CFHistoryStore;Ljava/lang/String;ZZLjava/util/Set;JZLkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function4;Lkotlin/jvm/functions/Function1;)Lorg/icpclive/cds/ContestDataSource;
+	public static synthetic fun createSource-J1moZ4E$default (Lorg/icpclive/cds/plugins/codeforces/CFSettings;Lorg/icpclive/cds/plugins/codeforces/CFHistoryStore;Ljava/lang/String;ZZLjava/util/Set;JZLkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function4;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lorg/icpclive/cds/ContestDataSource;
+}
+
+public final class org/icpclive/cds/plugins/codeforces/MemoryCFHistoryStore : org/icpclive/cds/plugins/codeforces/CFHistoryStore {
+	public fun <init> ()V
+	public fun merge (Ljava/lang/String;Lkotlinx/serialization/json/JsonElement;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun read (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 

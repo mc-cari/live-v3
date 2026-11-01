@@ -343,9 +343,7 @@
             "additionalProperties": false,
             "required": [
                 "type",
-                "contestId",
-                "apiKey",
-                "apiSecret"
+                "contestId"
             ]
         },
         "UrlOrLocalPath(UrlOrLocalPathRaw,UrlOrLocalPathLoginPassword,UrlOrLocalPathFull)": {
