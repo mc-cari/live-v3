@@ -151,11 +151,7 @@ internal class CFContestInfo {
             CFContestType.CF -> {
                 // TODO: this should come from API
                 val maxScore = submission.problem.points!!
-                val isWrong = submission.verdict !in listOf(
-                    CFSubmissionVerdict.OK,
-                    CFSubmissionVerdict.CHALLENGED,
-                    CFSubmissionVerdict.SKIPPED
-                )
+                val isWrong = submission.verdict != CFSubmissionVerdict.OK
                 val score = if (!isWrong) {
                     maxOf(
                         maxScore * 3 / 10,
