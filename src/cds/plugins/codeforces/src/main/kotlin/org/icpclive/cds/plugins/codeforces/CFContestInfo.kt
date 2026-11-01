@@ -31,7 +31,7 @@ internal class CFContestInfo {
             ?: Instant.DISTANT_FUTURE
         status = when (contest.phase) {
             CFContestPhase.BEFORE -> ContestStatus.BEFORE(scheduledStartAt = startTime.takeUnless{ it.isDistantFuture })
-            CFContestPhase.CODING -> ContestStatus.RUNNING(startedAt = startTime, frozenAt = null)
+            CFContestPhase.CODING, CFContestPhase.PENDING_SYSTEM_TEST, CFContestPhase.SYSTEM_TEST -> ContestStatus.RUNNING(startedAt = startTime, frozenAt = null)
             else -> ContestStatus.OVER(startedAt = startTime, finishedAt = startTime + contestLength, frozenAt = null)
         }
         freezeDuration = contest.freezeDuration
