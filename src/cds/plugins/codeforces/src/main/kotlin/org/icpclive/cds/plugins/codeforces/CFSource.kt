@@ -25,6 +25,11 @@ import kotlin.time.Duration.Companion.seconds
 
 private val logger by getLogger()
 
+/** Transport errors can include signed URLs; keep query parameters out of logs. */
+internal fun reloadFailureDescription(error: Exception): String =
+    "${error.javaClass.simpleName}: ${error.message?.substringBefore('?').orEmpty()}"
+
+
 /** Raw payload persistence, scoped to one contest. Arrays are upserted by original ID. */
 public interface CFHistoryStore {
     public suspend fun read(resource: String): JsonElement?
@@ -57,7 +62,7 @@ public fun CFSettings.createSource(
     freshConnections: Boolean = false,
     beforeRequest: suspend () -> Unit = {},
     onReload: suspend (restored: Boolean) -> Unit = {},
-    onFailure: suspend (Exception) -> Unit = { logger.error { "Codeforces reload failed: ${it.javaClass.simpleName}" } },
+    onFailure: suspend (Exception) -> Unit = { logger.error { "Codeforces reload failed: ${reloadFailureDescription(it)}" } },
     onRequest: (method: String, outcome: String, durationSeconds: Double, waitSeconds: Double) -> Unit = { _, _, _, _ -> },
     onHistory: (missing: Int) -> Unit = {},
 ): ContestDataSource {
