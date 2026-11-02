@@ -14,7 +14,7 @@ import kotlinx.html.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.elementNames
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.*
 import kotlinx.serialization.json.encodeToStream
 import kotlinx.serialization.modules.SerializersModule
 import org.icpclive.cds.scoreboard.ContestStateWithScoreboard
@@ -223,7 +223,12 @@ internal class ClicsExporter(private val mediaDirectory: Path) : Exporter {
                         //getId("clarifications", clarificationsFlow, endpoint, clicsEventsSerializersModule)
                         getId("awards", { feed().awardsFlow }, endpoint, clicsEventsSerializersModule)
                         get("/scoreboard") {
-                            call.respond(call.feed().getScoreboard(call.parameters["group_id"]))
+                            val unofficial = call.request.queryParameters["include_unofficial"] == "true"
+                            if (call.request.queryParameters["x_live"] == "true") {
+                                call.respond(call.feed().getExtendedScoreboard(call.parameters["group_id"], unofficial, json))
+                            } else {
+                                call.respond(call.feed().getScoreboard(call.parameters["group_id"], unofficial))
+                            }
                         }
                         get("/event-feed") {
                             call.respondBytesWriter(contentType = ContentType("application", "x-ndjson")) {
@@ -236,7 +241,13 @@ internal class ClicsExporter(private val mediaDirectory: Path) : Exporter {
                                             is GlobalEvent<*> -> true
                                         }
                                     }
-                                    .map { json.encodeToString(it.event) }
+                                    .map {
+                                        if (call.request.queryParameters["x_live"] != "true") json.encodeToString(it.event)
+                                        else {
+                                            val event = json.encodeToJsonElement(it.event).jsonObject
+                                            JsonObject(event + ("x_live" to JsonObject(it.metadata + ("feed_instance" to JsonPrimitive(call.feed().feedInstance))))).toString()
+                                        }
+                                    }
                                     .onIdle(1.minutes) { channel.send("") }
                                     .collect {
                                         writeFully(ByteBuffer.wrap("$it\n".toByteArray()))

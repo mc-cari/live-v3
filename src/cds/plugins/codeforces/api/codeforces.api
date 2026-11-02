@@ -1,34 +1,40 @@
 public abstract interface class org/icpclive/cds/plugins/codeforces/CFSettings : org/icpclive/cds/ktor/KtorNetworkSettingsProvider, org/icpclive/cds/settings/CDSSettings {
-	public abstract fun getApiKey ()Lorg/icpclive/cds/settings/Credential;
-	public abstract fun getApiSecret ()Lorg/icpclive/cds/settings/Credential;
+	public fun getApiKey ()Lorg/icpclive/cds/settings/Credential;
+	public fun getApiSecret ()Lorg/icpclive/cds/settings/Credential;
 	public fun getAsManager ()Z
+	public fun getBaseUrl ()Ljava/lang/String;
 	public abstract fun getContestId ()I
+	public fun getIncludeUnofficial ()Z
 	public fun toDataSource ()Lorg/icpclive/cds/ContestDataSource;
 }
 
 public final class org/icpclive/cds/plugins/codeforces/CFSettingsBuilder : org/icpclive/cds/plugins/codeforces/CFSettings {
-	public fun <init> (ILorg/icpclive/cds/settings/Credential;Lorg/icpclive/cds/settings/Credential;)V
+	public fun <init> (I)V
 	public fun <init> (Lorg/icpclive/cds/plugins/codeforces/CFSettings;)V
 	public final fun build ()Lorg/icpclive/cds/plugins/codeforces/CFSettings;
 	public fun getApiKey ()Lorg/icpclive/cds/settings/Credential;
 	public fun getApiSecret ()Lorg/icpclive/cds/settings/Credential;
 	public fun getAsManager ()Z
+	public fun getBaseUrl ()Ljava/lang/String;
 	public fun getContestId ()I
 	public fun getEmulation ()Lorg/icpclive/cds/settings/EmulationSettings;
+	public fun getIncludeUnofficial ()Z
 	public fun getNetwork ()Lorg/icpclive/cds/ktor/NetworkSettings;
 	public fun getPreviousDays ()Ljava/util/List;
 	public fun setApiKey (Lorg/icpclive/cds/settings/Credential;)V
 	public fun setApiSecret (Lorg/icpclive/cds/settings/Credential;)V
 	public fun setAsManager (Z)V
+	public fun setBaseUrl (Ljava/lang/String;)V
 	public fun setContestId (I)V
 	public fun setEmulation (Lorg/icpclive/cds/settings/EmulationSettings;)V
+	public fun setIncludeUnofficial (Z)V
 	public fun setNetwork (Lorg/icpclive/cds/ktor/NetworkSettings;)V
 	public fun setPreviousDays (Ljava/util/List;)V
 }
 
 public final class org/icpclive/cds/plugins/codeforces/CFSettingsImplKt {
-	public static final fun CFSettings (ILorg/icpclive/cds/settings/Credential;Lorg/icpclive/cds/settings/Credential;Lkotlin/jvm/functions/Function1;)Lorg/icpclive/cds/plugins/codeforces/CFSettings;
-	public static synthetic fun CFSettings$default (ILorg/icpclive/cds/settings/Credential;Lorg/icpclive/cds/settings/Credential;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lorg/icpclive/cds/plugins/codeforces/CFSettings;
+	public static final fun CFSettings (ILkotlin/jvm/functions/Function1;)Lorg/icpclive/cds/plugins/codeforces/CFSettings;
+	public static synthetic fun CFSettings$default (ILkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lorg/icpclive/cds/plugins/codeforces/CFSettings;
 	public static final fun copy (Lorg/icpclive/cds/plugins/codeforces/CFSettings;Lkotlin/jvm/functions/Function1;)Lorg/icpclive/cds/plugins/codeforces/CFSettings;
 	public static synthetic fun copy$default (Lorg/icpclive/cds/plugins/codeforces/CFSettings;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lorg/icpclive/cds/plugins/codeforces/CFSettings;
 }
